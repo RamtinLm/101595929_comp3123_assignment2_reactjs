@@ -1,14 +1,18 @@
 require("dotenv").config({ quiet: true })
 
-// Fix for MongoDB Atlas SRV lookup on some networks (local only)
-if(!process.env.VERCEL){
+// Fix for MongoDB Atlas SRV lookup on some networks
+// Only needed for "mongodb+srv://" URIs, Docker uses its own DNS for the "mongo" service name
+if((process.env.MONGODB_URI || "").startsWith("mongodb+srv") && !process.env.VERCEL){
     require("dns").setServers(["8.8.8.8", "1.1.1.1"])
 }
 
+const fs = require("fs")
 const express = require("express")
 const mongoose = require("mongoose")
 const helmet = require("helmet")
 const connectDB = require("./config/db.js")
+const corsMiddleware = require("./config/cors.js")
+const { UPLOAD_DIR } = require("./config/paths.js")
 const logger = require("./utils/logger.js")
 const requestLogger = require("./middleware/requestLogger.js")
 const { apiLimiter } = require("./middleware/rateLimiter.js")
@@ -19,7 +23,7 @@ const employeeRoutes = require("./routes/employeeRoutes.js")
 
 // Stop right away if a required setting is missing
 // Only the names are logged, never the values
-const REQUIRED_ENV = ["MONGODB_URI", "JWT_SECRET"]
+const REQUIRED_ENV = ["MONGODB_URI", "JWT_SECRET", "CORS_ORIGIN"]
 const missingEnv = REQUIRED_ENV.filter((name) => !process.env[name])
 
 if(missingEnv.length > 0){
@@ -28,12 +32,15 @@ if(missingEnv.length > 0){
 }
 
 
+// Make sure the uploads folder exists before any picture is saved
+fs.mkdirSync(UPLOAD_DIR, { recursive: true })
+
+
 const PORT = process.env.PORT || 8081
 
 const app = express()
 
 // On Vercel the app sits behind a proxy, trust it so req.ip is the real client IP
-// (the rate limiter counts requests per IP)
 if(process.env.VERCEL){
     app.set("trust proxy", 1)
 }
@@ -42,7 +49,17 @@ if(process.env.VERCEL){
 // Middleware
 // Request logger goes first so even bad requests (broken JSON) get logged
 app.use(requestLogger)
-app.use(helmet()) // Security headers, also removes X-Powered-By
+
+// CORS before the rate limiter and routes, so 401 / 429 responses also carry
+// the CORS headers and the browser can read them (and preflight OPTIONS is answered here)
+app.use(corsMiddleware)
+
+// Security headers, also removes X-Powered-By
+// cross-origin resource policy lets the frontend (another origin) show our /uploads images
+app.use(helmet({
+    crossOriginResourcePolicy: { policy: "cross-origin" }
+}))
+
 app.use(express.json({ limit: "10kb" })) // Parse JSON bodies, reject huge ones
 app.use(express.urlencoded({ extended: true, limit: "10kb" })) // Parse form bodies
 
@@ -50,7 +67,7 @@ app.use(express.urlencoded({ extended: true, limit: "10kb" })) // Parse form bod
 // Root route
 // GET http://localhost:8081/
 app.get("/", (req, res) => {
-    res.send("<h2>COMP3123 Assignment 1 - Employee Management API</h2>")
+    res.send("<h2>COMP3123 Assignment 2 - Employee Management API</h2>")
 })
 
 
@@ -76,6 +93,15 @@ app.get("/health", async (req, res) => {
 })
 
 
+// Uploaded profile pictures, for example GET http://localhost:8081/uploads/<uuid>.jpg
+// File names are random UUIDs, dotfiles and folder listings are blocked
+app.use("/uploads", express.static(UPLOAD_DIR, {
+    dotfiles: "deny",
+    index: false,
+    fallthrough: true
+}))
+
+
 // General rate limit for all API routes
 app.use("/api", apiLimiter)
 
@@ -98,7 +124,7 @@ app.use(notFound)
 app.use(errorHandler)
 
 
-// Vercel runs the app itself, so only listen when running locally
+// Vercel runs the app itself, so only listen when running locally or in Docker
 if(!process.env.VERCEL){
     app.listen(PORT, () => {
         logger.info(`Server listening on port ${PORT}`)
@@ -107,5 +133,4 @@ if(!process.env.VERCEL){
     logger.info("App loaded on Vercel")
 }
 
-// Vercel needs the app exported (CommonJS)
 module.exports = app
