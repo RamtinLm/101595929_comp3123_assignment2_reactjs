@@ -2,8 +2,10 @@
 Purpose:
 Validation rules for the employee routes
 Create: every field is required
-Update: every field is optional, but at least one must be sent
-checkExact rejects unknown fields, so nobody can sneak in a "user" field to change the owner
+Update: every field is optional, but at least one field or a new picture must be sent
+Search: department and/or position in the query string
+checkExact rejects unknown fields, so nobody can sneak in a "user" or "profile_picture" field
+The picture itself is not in req.body, multer puts it in req.file
 */
 
 const { body, param, query, checkExact } = require("express-validator")
@@ -64,11 +66,31 @@ const eidQuery = query("eid")
     .exists().withMessage("eid query parameter is required").bail()
     .isMongoId().withMessage("Employee ID must be a valid MongoDB ObjectId")
 
-// An update with an empty body does nothing, so reject it
+// An update with no fields and no picture does nothing, so reject it
 // Outside checkExact on purpose, a whole-body rule inside it would allow any field
-const atLeastOneField = body().custom((value) => {
-    if(!value || Object.keys(value).length === 0){
-        throw new Error("Send at least one field to update")
+const atLeastOneField = body().custom((value, { req }) => {
+    const hasFields = value && Object.keys(value).length > 0
+
+    if(!hasFields && !req.file){
+        throw new Error("Send at least one field or a new picture to update")
+    }
+    return true
+})
+
+
+// Search text: optional, must be a string (blocks ?department[]=a arrays), 1 to 100 chars
+const searchField = (name, label) => {
+    return query(name)
+        .optional()
+        .isString().withMessage(`${label} must be text`).bail()
+        .trim()
+        .isLength({ min: 1, max: 100 }).withMessage(`${label} must be 1 to 100 characters`)
+}
+
+// Search needs department, position or both
+const atLeastOneSearchField = query("department").custom((value, { req }) => {
+    if(req.query.department === undefined && req.query.position === undefined){
+        throw new Error("Provide department or position to search")
     }
     return true
 })
@@ -91,9 +113,19 @@ const employeeIdRules = checkExact([eidParam], exactMessage)
 // DELETE /api/v1/emp/employees?eid=xxx
 const deleteEmployeeRules = checkExact([eidQuery], exactMessage)
 
+// GET    /api/v1/emp/employees/search?department=...&position=...
+const searchRules = [
+    checkExact([
+        searchField("department", "Department"),
+        searchField("position", "Position")
+    ], exactMessage),
+    atLeastOneSearchField
+]
+
 module.exports = {
     createEmployeeRules,
     updateEmployeeRules,
     employeeIdRules,
-    deleteEmployeeRules
+    deleteEmployeeRules,
+    searchRules
 }
