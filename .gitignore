@@ -1,0 +1,26 @@
+# Dependencies
+node_modules/
+
+# Build output
+frontend/dist/
+
+# Secrets (the .env.example files are committed)
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+npm-debug.log*
+
+# Uploaded profile pictures are user data (keep the empty folder)
+backend/uploads/*
+!backend/uploads/.gitkeep
+
+# Generated test file for the "file too large" test
+postman/test-files/too-big.png
+
+# OS and editor files
+.DS_Store
+.vscode/
+.idea/
