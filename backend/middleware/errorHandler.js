@@ -5,8 +5,10 @@ Turns known errors into clear JSON responses with the right status code
 Unknown errors become a generic 500, the details go to the log only (no stack traces to the client)
 */
 
+const multer = require("multer")
 const AppError = require("../utils/AppError.js")
 const logger = require("../utils/logger.js")
+const { MAX_FILE_MB } = require("./upload.js")
 
 
 // 404 for any route that does not exist
@@ -34,6 +36,38 @@ const errorHandler = (err, req, res, next) => {
         return res.status(413).send({
             status: false,
             message: "Request body is too large"
+        })
+    }
+
+    // File upload errors from multer
+    if(err instanceof multer.MulterError){
+        logger.warn(`Upload rejected on ${req.method} ${req.originalUrl}: ${err.code}`)
+
+        if(err.code === "LIMIT_FILE_SIZE"){
+            return res.status(413).send({
+                status: false,
+                message: `Profile picture must be ${MAX_FILE_MB} MB or smaller`
+            })
+        }
+
+        const uploadMessages = {
+            LIMIT_UNEXPECTED_FILE: "Only one file is allowed, in the profile_picture field",
+            LIMIT_FILE_COUNT: "Only one file is allowed, in the profile_picture field",
+            LIMIT_FIELD_COUNT: "Too many form fields"
+        }
+
+        return res.status(400).send({
+            status: false,
+            message: uploadMessages[err.code] || "Invalid file upload"
+        })
+    }
+
+    // Broken multipart body (for example a missing boundary)
+    if(typeof err.message === "string" && (err.message.startsWith("Multipart") || err.message === "Unexpected end of form")){
+        logger.warn(`Malformed form data on ${req.method} ${req.originalUrl}`)
+        return res.status(400).send({
+            status: false,
+            message: "Malformed form data"
         })
     }
 

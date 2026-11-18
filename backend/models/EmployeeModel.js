@@ -51,6 +51,12 @@ const EmployeeSchema = new mongoose.Schema({
         trim: true,
         maxlength: [100, "Department must be at most 100 characters"]
     },
+    // Path of the stored picture, for example /uploads/<uuid>.jpg (null = no picture)
+    // Only the server sets this, the validators reject it in the request body
+    profile_picture: {
+        type: String,
+        default: null
+    },
     // Owner of this employee, points to a document in the users collection
     user: {
         type: mongoose.Schema.Types.ObjectId,
